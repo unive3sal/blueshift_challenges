@@ -2,10 +2,9 @@ use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{rent::Rent, Sysvar},
-    AccountView, ProgramResult,
+    AccountView, Address, ProgramResult,
 };
 use pinocchio_associated_token_account::instructions::Create;
-use pinocchio_pubkey::derive_address;
 use pinocchio_system::instructions::CreateAccount;
 use pinocchio_token_2022::ID as TOKEN_2022_PROGRAM_ID;
 
@@ -101,16 +100,16 @@ impl AssociatedTokenAccount {
     ) -> Result<(), ProgramError> {
         TokenInterface::check(account)?;
 
-        if derive_address(
+        if Address::find_program_address(
             &[
                 authority.address().as_array(),
                 token_program.address().as_array(),
                 mint.address().as_array(),
             ],
-            None,
-            &pinocchio_associated_token_account::ID.as_array(),
+            &pinocchio_associated_token_account::ID,
         )
-        .ne(account.address().as_array())
+        .0
+        .ne(account.address())
         {
             return Err(PinocchioError::InvalidAddress.into());
         }

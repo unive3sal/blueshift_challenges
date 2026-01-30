@@ -32,11 +32,20 @@ impl<'a> TryFrom<&'a [AccountView]> for RefundAccounts<'a> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
+        AssociatedTokenAccount::init_if_needed(
+            maker_ata_a,
+            mint_a,
+            maker,
+            maker,
+            system_program,
+            token_program,
+        )?;
+
         SignerAccount::check(maker)?;
         ProgramAccount::check(escrow)?;
         MintInterface::check(mint_a)?;
-        AssociatedTokenAccount::check(vault, escrow, mint_a, token_program)?;
         AssociatedTokenAccount::check(maker_ata_a, maker, mint_a, token_program)?;
+        AssociatedTokenAccount::check(vault, escrow, mint_a, token_program)?;
 
         Ok(Self {
             maker,
@@ -60,15 +69,6 @@ impl<'a> TryFrom<&'a [AccountView]> for Refund<'a> {
     fn try_from(accounts: &'a [AccountView]) -> Result<Self, Self::Error> {
         let accounts = RefundAccounts::try_from(accounts)?;
 
-        AssociatedTokenAccount::init_if_needed(
-            accounts.maker_ata_a,
-            accounts.mint_a,
-            accounts.maker,
-            accounts.maker,
-            accounts.system_program,
-            accounts.token_program,
-        )?;
-
         Ok(Self { accounts })
     }
 }
@@ -77,26 +77,28 @@ impl<'a> Refund<'a> {
     pub const DISCRIMINATOR: &'a u8 = &2;
 
     pub fn process(&self) -> ProgramResult {
-        let data = self.accounts.escrow.try_borrow()?;
-        let escrow = Escrow::load(&data)?;
+        let (seed_binding, bump_binding) = {
+            let data = self.accounts.escrow.try_borrow()?;
+            let escrow = Escrow::load(&data)?;
 
-        // Check if the escrow is valid
-        let escrow_key = derive_address(
-            &[
-                b"escrow",
-                self.accounts.maker.address().as_array(),
-                &escrow.seed.to_le_bytes(),
-                &escrow.bump,
-            ],
-            None,
-            &crate::ID.to_bytes(),
-        );
-        if escrow_key != self.accounts.escrow.address().to_bytes() {
-            return Err(ProgramError::InvalidAccountOwner);
-        }
+            // Check if the escrow is valid
+            let escrow_key = derive_address(
+                &[
+                    b"escrow",
+                    self.accounts.maker.address().as_array(),
+                    &escrow.seed.to_le_bytes(),
+                    &escrow.bump,
+                ],
+                None,
+                &crate::ID.to_bytes(),
+            );
+            if escrow_key != self.accounts.escrow.address().to_bytes() {
+                return Err(ProgramError::InvalidAccountOwner);
+            }
 
-        let seed_binding = escrow.seed.to_le_bytes();
-        let bump_binding = escrow.bump;
+            (escrow.seed.to_le_bytes(), escrow.bump)
+        };
+
         let escrow_seeds = [
             Seed::from(b"escrow"),
             Seed::from(self.accounts.maker.address().as_ref()),
@@ -115,7 +117,6 @@ impl<'a> Refund<'a> {
         }
         .invoke_signed(&signers)?;
 
-        self.accounts.vault.resize(1)?;
         CloseAccount {
             account: self.accounts.vault,
             destination: self.accounts.maker_ata_a,
@@ -123,7 +124,7 @@ impl<'a> Refund<'a> {
         }
         .invoke_signed(&signers)?;
 
-        ProgramAccount::close(self.accounts.escrow, self.accounts.maker)?;
+        ProgramAccount::close(self.accounts.escrow, self.accounts.maker_ata_a)?;
 
         Ok(())
     }
