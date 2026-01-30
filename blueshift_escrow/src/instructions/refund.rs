@@ -4,7 +4,10 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use pinocchio_pubkey::derive_address;
-use pinocchio_token::{instructions::{CloseAccount, Transfer}, state::TokenAccount};
+use pinocchio_token::{
+    instructions::{CloseAccount, Transfer},
+    state::TokenAccount,
+};
 
 use super::helpers::*;
 use crate::state::Escrow;
@@ -23,7 +26,8 @@ impl<'a> TryFrom<&'a [AccountView]> for RefundAccounts<'a> {
     type Error = ProgramError;
 
     fn try_from(accounts: &'a [AccountView]) -> Result<Self, Self::Error> {
-        let [maker, escrow, mint_a, vault, maker_ata_a, system_program, token_program] = accounts
+        let [maker, escrow, mint_a, vault, maker_ata_a, system_program, token_program, _] =
+            accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
@@ -108,14 +112,18 @@ impl<'a> Refund<'a> {
             to: self.accounts.maker_ata_a,
             authority: self.accounts.escrow,
             amount,
-        }.invoke_signed(&signers)?;
+        }
+        .invoke_signed(&signers)?;
 
         self.accounts.vault.resize(1)?;
         CloseAccount {
             account: self.accounts.vault,
             destination: self.accounts.maker_ata_a,
             authority: self.accounts.escrow,
-        }.invoke_signed(&signers)?;
+        }
+        .invoke_signed(&signers)?;
+
+        ProgramAccount::close(self.accounts.escrow, self.accounts.maker)?;
 
         Ok(())
     }
