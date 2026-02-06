@@ -1,0 +1,17 @@
+[package]
+name = "blueshift_native_amm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+constant-product-curve = { git = "https://github.com/deanmlittle/constant-product-curve", version = "0.1.0" }
+pinocchio = { version = "0.10.1", features = ["copy"] }
+pinocchio-associated-token-account = "0.3.0"
+pinocchio-pubkey = "0.3.0"
+pinocchio-system = "0.5.0"
+pinocchio-token = "0.5.0"
+pinocchio-token-2022 = "0.2.0"
+solana-address = { version = "2.1.0", features = ["curve25519"] }
