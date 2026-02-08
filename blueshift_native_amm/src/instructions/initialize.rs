@@ -1,8 +1,7 @@
 use core::mem::MaybeUninit;
-use pinocchio::cpi::Seed;
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::cpi::{Seed, Signer};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use pinocchio_pubkey::derive_address;
-use pinocchio_token::state::Mint;
 
 use super::utils::*;
 use crate::state::*;
@@ -17,7 +16,7 @@ impl<'a> TryFrom<&'a [AccountView]> for InitializeAccounts<'a> {
     type Error = ProgramError;
 
     fn try_from(accounts: &'a [AccountView]) -> Result<Self, Self::Error> {
-        let [initializer, mint_lp, config, system_account, token_account, _] = accounts else {
+        let [initializer, mint_lp, config, _, _] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
@@ -140,13 +139,20 @@ impl<'a> Initialize<'a> {
             self.instruction_data.config_bump,
         )?;
 
-        let mint_lp_decimals = 1;
+        let mint_lp_decimals = 6;
+        let mint_lp_seeds = [
+            Seed::from(b"mint_lp"),
+            Seed::from(self.accounts.config.address().as_array()),
+            Seed::from(&self.instruction_data.lp_bump),
+        ];
+        let mint_signers = [Signer::from(&mint_lp_seeds)];
         MintInterface::init_if_need(
             self.accounts.mint_lp,
             self.accounts.initializer,
             mint_lp_decimals,
             self.accounts.config.address(),
             None,
+            &mint_signers,
         )?;
 
         Ok(())

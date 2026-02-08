@@ -111,26 +111,27 @@ impl MintInterface {
         decimals: u8,
         mint_authoriy: &Address,
         freeze_authority: Option<&Address>,
+        signers: &[Signer],
     ) -> ProgramResult {
-        Self::check(account)?;
+        if let Err(_) = Self::check(account) {
+            let mint_lamport = Rent::get()?.try_minimum_balance(Mint::LEN)?;
+            CreateAccount {
+                from: payer,
+                to: account,
+                lamports: mint_lamport,
+                space: Mint::LEN as u64,
+                owner: &pinocchio_token::ID,
+            }
+            .invoke_signed(signers)?;
 
-        let mint_lamport = Rent::get()?.try_minimum_balance(Mint::LEN)?;
-        CreateAccount {
-            from: payer,
-            to: account,
-            lamports: mint_lamport,
-            space: Mint::LEN as u64,
-            owner: &pinocchio_token::ID,
+            InitializeMint2 {
+                mint: account,
+                decimals: decimals,
+                mint_authority: mint_authoriy,
+                freeze_authority: freeze_authority,
+            }
+            .invoke()?;
         }
-        .invoke()?;
-
-        InitializeMint2 {
-            mint: account,
-            decimals: decimals,
-            mint_authority: mint_authoriy,
-            freeze_authority: freeze_authority,
-        }
-        .invoke()?;
 
         Ok(())
     }
@@ -225,7 +226,12 @@ impl AssociatedTokenAccount {
         system_program: &AccountView,
         token_program: &AccountView,
     ) -> ProgramResult {
-        match Self::check(account, payer.address(), mint.address(), token_program.address()) {
+        match Self::check(
+            account,
+            payer.address(),
+            mint.address(),
+            token_program.address(),
+        ) {
             Ok(_) => Ok(()),
             Err(_) => Self::init(account, mint, payer, owner, system_program, token_program),
         }

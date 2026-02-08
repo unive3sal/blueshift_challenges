@@ -1,10 +1,11 @@
-use pinocchio::{cpi::{Seed, Signer}, error::ProgramError, AccountView, ProgramResult};
-use pinocchio_token::instructions::{MintTo, Transfer};
-use pinocchio_token::state::{
-    Mint,
-    TokenAccount,
-};
 use constant_product_curve::ConstantProduct;
+use pinocchio::{
+    cpi::{Seed, Signer},
+    error::ProgramError,
+    AccountView, ProgramResult,
+};
+use pinocchio_token::instructions::{MintTo, Transfer};
+use pinocchio_token::state::{Mint, TokenAccount};
 
 use super::utils::*;
 use crate::state::*;
@@ -26,7 +27,7 @@ impl<'a> TryFrom<&'a [AccountView]> for DepositAccounts<'a> {
     type Error = ProgramError;
 
     fn try_from(accounts: &'a [AccountView]) -> Result<Self, Self::Error> {
-        let [user, mint_lp, vault_x, vault_y, user_x_ata, user_y_ata, user_lp_ata, config, token_program, _] =
+        let [user, mint_lp, vault_x, vault_y, user_x_ata, user_y_ata, user_lp_ata, config, token_program] =
             accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -125,11 +126,15 @@ impl<'a> Deposit<'a> {
             self.accounts.token_program.address(),
         )?;
 
+        if config_data.state() != AmmState::Initialized as u8 {
+            return Err(ProgramError::InvalidAccountData);
+        }
+
         // Deserialize the token accounts
         let mint_lp = unsafe { Mint::from_account_view_unchecked(self.accounts.mint_lp)? };
         let vault_x = unsafe { TokenAccount::from_account_view_unchecked(self.accounts.vault_x)? };
         let vault_y = unsafe { TokenAccount::from_account_view_unchecked(self.accounts.vault_y)? };
-        
+
         // Grab the amounts to deposit
         let (x, y) = match mint_lp.supply() == 0 && vault_x.amount() == 0 && vault_y.amount() == 0 {
             true => (self.instruction_data.max_x, self.instruction_data.max_y),
@@ -145,45 +150,49 @@ impl<'a> Deposit<'a> {
                 (amounts.x, amounts.y)
             }
         };
-        
+
         // Check for slippage
         if !(x <= self.instruction_data.max_x && y <= self.instruction_data.max_y) {
             return Err(ProgramError::InvalidArgument);
         }
 
+        // transfer from user ATA to corresponding vault
+        Transfer {
+            from: self.accounts.user_x_ata,
+            to: self.accounts.vault_x,
+            authority: self.accounts.user,
+            amount: x,
+        }
+        .invoke()?;
+        Transfer {
+            from: self.accounts.user_y_ata,
+            to: self.accounts.vault_y,
+            authority: self.accounts.user,
+            amount: y,
+        }
+        .invoke()?;
+
+        // mint lp token
         let config_seed_binding = config_data.seed().to_le_bytes();
         let config_bump_binding = config_data.config_bump();
         let config_seeds = [
             Seed::from(b"config"),
-            Seed::from(self.accounts.user.address().as_ref()),
             Seed::from(&config_seed_binding),
+            Seed::from(config_data.mint_x().as_array()),
+            Seed::from(config_data.mint_y().as_array()),
             Seed::from(&config_bump_binding),
         ];
         let config_signer = Signer::from(&config_seeds);
         let deposit_signers = [config_signer];
 
-        // transfer from user ATA to corresponding vault
-        Transfer {
-            from: self.accounts.user_x_ata,
-            to: self.accounts.vault_x,
-            authority: self.accounts.config,
-            amount: x,
-        }.invoke_signed(&deposit_signers)?;
-        Transfer {
-            from: self.accounts.user_y_ata,
-            to: self.accounts.vault_y,
-            authority: self.accounts.config,
-            amount: y,
-        }.invoke_signed(&deposit_signers)?;
-
-        // mint lp token
         let mint_lp_signers = deposit_signers;
         MintTo {
             mint: self.accounts.mint_lp,
             account: self.accounts.user_lp_ata,
             mint_authority: self.accounts.config,
             amount: self.instruction_data.amount,
-        }.invoke_signed(&mint_lp_signers)?;
+        }
+        .invoke_signed(&mint_lp_signers)?;
 
         Ok(())
     }
