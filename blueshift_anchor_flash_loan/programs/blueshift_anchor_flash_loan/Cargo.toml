@@ -1,12 +1,12 @@
 [package]
-name = "blueshift_anchor_escrow"
+name = "blueshift_anchor_flash_loan"
 version = "0.1.0"
 description = "Created with Anchor"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "blueshift_anchor_escrow"
+name = "blueshift_anchor_flash_loan"
 
 [features]
 default = []
